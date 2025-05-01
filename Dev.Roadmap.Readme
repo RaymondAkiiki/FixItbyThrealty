@@ -1,0 +1,3148 @@
+Perfect — we’re kicking off development for **Fixit by Threalty**, the standalone Maintenance Tracking App. We’ll build it **modularly, cleanly, and fully functional out of the box**, starting with the backend first to define your core logic.
+
+---
+
+## 🚀 STEP 1: Project Initialization (Backend)
+
+We’ll create your backend API using Node.js + Express, connected to MongoDB.
+
+### 📁 Folder Structure (Backend)
+```
+fixit-backend/
+├── controllers/
+├── models/
+├── routes/
+├── middleware/
+├── utils/
+├── config/
+├── .env
+├── server.js
+├── package.json
+```
+
+### ✅ 1.1 Initialize Project
+In your terminal:
+```bash
+mkdir fixit-backend && cd fixit-backend
+npm init -y
+npm install express mongoose dotenv cors bcryptjs jsonwebtoken
+npm install --save-dev nodemon
+```
+
+### ✅ 1.2 Add `package.json` Scripts
+```json
+"scripts": {
+  "start": "node server.js",
+  "dev": "nodemon server.js"
+}
+```
+
+---
+
+### ✅ 1.3 Basic Server Setup (`server.js`)
+```js
+const express = require('express');
+const mongoose = require('mongoose');
+const dotenv = require('dotenv');
+const cors = require('cors');
+
+dotenv.config();
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+// Routes
+app.get('/', (req, res) => res.send('Fixit by Threalty API running...'));
+
+// MongoDB Connection
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+}).then(() => console.log('MongoDB Connected'))
+  .catch(err => console.error(err));
+
+// Start Server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+```
+
+---
+
+### ✅ 1.4 Create `.env`
+```env
+MONGO_URI=mongodb+srv://<your_cluster>.mongodb.net/fixit
+JWT_SECRET=your_jwt_secret
+```
+
+---
+
+✅ Backend is initialized and ready to build out features.
+
+---
+
+### ⏭️ Next Step:
+**We’ll build the User Auth system** (Signup/Login, roles, JWT, route protection) with models and routes cleanly separated.
+
+Would you like me to continue directly into the user model and auth routes setup now?
+
+Great! Let’s build the **User Authentication System** for **Fixit by Threalty** — complete with signup, login, role-based access, and JWT protection.
+
+---
+
+## 🧱 STEP 2: User Auth System (Backend)
+
+---
+
+### 📁 Folder Structure Additions:
+```
+fixit-backend/
+├── controllers/
+│   └── authController.js
+├── models/
+│   └── User.js
+├── routes/
+│   └── authRoutes.js
+├── middleware/
+│   └── authMiddleware.js
+```
+
+---
+
+## ✅ 2.1 User Model (`models/User.js`)
+```js
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  role: {
+    type: String,
+    enum: ['tenant', 'landlord', 'property_manager'],
+    default: 'tenant'
+  },
+  approved: { type: Boolean, default: false },
+  property: { type: mongoose.Schema.Types.ObjectId, ref: 'Property' },
+}, { timestamps: true });
+
+// Hash password before save
+userSchema.pre('save', async function(next) {
+  if (!this.isModified('password')) return next();
+  this.password = await bcrypt.hash(this.password, 12);
+  next();
+});
+
+// Compare password
+userSchema.methods.matchPassword = async function(enteredPassword) {
+  return await bcrypt.compare(enteredPassword, this.password);
+};
+
+module.exports = mongoose.model('User', userSchema);
+```
+
+---
+
+## ✅ 2.2 Auth Controller (`controllers/authController.js`)
+```js
+const User = require('../models/User');
+const jwt = require('jsonwebtoken');
+
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+};
+
+// Register User
+exports.register = async (req, res) => {
+  const { name, email, password, role } = req.body;
+  try {
+    const userExists = await User.findOne({ email });
+    if (userExists) return res.status(400).json({ message: 'User already exists' });
+
+    const user = await User.create({ name, email, password, role });
+    res.status(201).json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      token: generateToken(user._id)
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Login User
+exports.login = async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (user && await user.matchPassword(password)) {
+      res.json({
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        approved: user.approved,
+        token: generateToken(user._id)
+      });
+    } else {
+      res.status(401).json({ message: 'Invalid credentials' });
+    }
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+```
+
+---
+
+## ✅ 2.3 Auth Routes (`routes/authRoutes.js`)
+```js
+const express = require('express');
+const router = express.Router();
+const { register, login } = require('../controllers/authController');
+
+router.post('/register', register);
+router.post('/login', login);
+
+module.exports = router;
+```
+
+---
+
+## ✅ 2.4 Auth Middleware (`middleware/authMiddleware.js`)
+```js
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+
+exports.protect = async (req, res, next) => {
+  let token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'No token provided' });
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = await User.findById(decoded.id).select('-password');
+    next();
+  } catch (err) {
+    res.status(401).json({ message: 'Invalid token' });
+  }
+};
+
+exports.authorizeRoles = (...roles) => {
+  return (req, res, next) => {
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+    next();
+  };
+};
+```
+
+---
+
+## ✅ 2.5 Register Routes in Server (`server.js`)
+Update `server.js`:
+```js
+const authRoutes = require('./routes/authRoutes');
+
+app.use('/api/auth', authRoutes);
+```
+
+---
+
+## ✅ 2.6 Test Endpoints (via Postman)
+- `POST /api/auth/register`  
+  Body: `{ name, email, password, role }`
+- `POST /api/auth/login`  
+  Body: `{ email, password }`
+
+---
+
+✅ **Auth system is ready.** Fully supports:
+- JWT-based login
+- Role assignment
+- Route protection and role filtering
+
+---
+
+### ⏭️ Next Step:
+We’ll create the **Property model + approval system for linking tenants to existing properties** with a request + approval flow.
+
+Would you like me to continue with that module now?
+
+Perfect — now we’ll build the **Property System** and **Tenant Approval Flow**. This lets:
+
+- Landlords & PMs create properties.
+- Tenants **search**, **select**, and **request to join**.
+- PMs/Landlords **approve/reject** requests.
+
+---
+
+## 🧱 STEP 3: Property System + Tenant Approval Flow
+
+---
+
+### 📁 New Files:
+```
+fixit-backend/
+├── models/
+│   └── Property.js
+├── controllers/
+│   └── propertyController.js
+├── routes/
+│   └── propertyRoutes.js
+```
+
+---
+
+## ✅ 3.1 Property Model (`models/Property.js`)
+```js
+const mongoose = require('mongoose');
+
+const propertySchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  location: { type: String, required: true },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  tenants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  pendingTenants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
+}, { timestamps: true });
+
+module.exports = mongoose.model('Property', propertySchema);
+```
+
+---
+
+## ✅ 3.2 Property Controller (`controllers/propertyController.js`)
+```js
+const Property = require('../models/Property');
+const User = require('../models/User');
+
+// Create property (PMs/Landlords)
+exports.createProperty = async (req, res) => {
+  const { name, location } = req.body;
+  try {
+    const property = await Property.create({
+      name,
+      location,
+      createdBy: req.user._id
+    });
+    res.status(201).json(property);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Tenant requests to join
+exports.requestToJoin = async (req, res) => {
+  const { propertyId } = req.body;
+  try {
+    const property = await Property.findById(propertyId);
+    if (!property) return res.status(404).json({ message: 'Property not found' });
+
+    if (property.pendingTenants.includes(req.user._id) || property.tenants.includes(req.user._id)) {
+      return res.status(400).json({ message: 'Already requested or linked' });
+    }
+
+    property.pendingTenants.push(req.user._id);
+    await property.save();
+
+    res.json({ message: 'Request sent' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Approve tenant (only by property creator)
+exports.approveTenant = async (req, res) => {
+  const { propertyId, tenantId } = req.body;
+  try {
+    const property = await Property.findById(propertyId);
+    if (!property) return res.status(404).json({ message: 'Property not found' });
+
+    if (!property.createdBy.equals(req.user._id)) {
+      return res.status(403).json({ message: 'Not allowed' });
+    }
+
+    if (!property.pendingTenants.includes(tenantId)) {
+      return res.status(400).json({ message: 'Tenant not found in pending list' });
+    }
+
+    // Move from pending to tenants
+    property.pendingTenants.pull(tenantId);
+    property.tenants.push(tenantId);
+    await property.save();
+
+    // Update user
+    await User.findByIdAndUpdate(tenantId, {
+      approved: true,
+      property: propertyId
+    });
+
+    res.json({ message: 'Tenant approved' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Get all properties (search by location)
+exports.searchProperties = async (req, res) => {
+  const { location } = req.query;
+  try {
+    const props = await Property.find({ location: { $regex: location, $options: 'i' } });
+    res.json(props);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+```
+
+---
+
+## ✅ 3.3 Property Routes (`routes/propertyRoutes.js`)
+```js
+const express = require('express');
+const router = express.Router();
+const {
+  createProperty,
+  requestToJoin,
+  approveTenant,
+  searchProperties
+} = require('../controllers/propertyController');
+const { protect, authorizeRoles } = require('../middleware/authMiddleware');
+
+// PMs or Landlords create property
+router.post('/create', protect, authorizeRoles('landlord', 'property_manager'), createProperty);
+
+// Tenants request to join
+router.post('/request', protect, authorizeRoles('tenant'), requestToJoin);
+
+// PMs/Landlords approve tenant
+router.post('/approve', protect, authorizeRoles('landlord', 'property_manager'), approveTenant);
+
+// Search by location
+router.get('/search', protect, searchProperties);
+
+module.exports = router;
+```
+
+---
+
+## ✅ 3.4 Register in `server.js`
+```js
+const propertyRoutes = require('./routes/propertyRoutes');
+
+app.use('/api/properties', propertyRoutes);
+```
+
+---
+
+## 🧪 Test Flow (Postman / Frontend Later)
+
+1. **POST `/api/properties/create`** → PM/Landlord creates a property
+2. **GET `/api/properties/search?location=Nansana`** → Tenant finds property
+3. **POST `/api/properties/request`** → Tenant requests to join property
+4. **POST `/api/properties/approve`** → PM/Landlord approves
+
+---
+
+### ✅ Result:
+- Properties can be created and searched by location
+- Tenants must request to join → PM/Landlord approves → user becomes "linked"
+- `User.approved` is set to true + property reference added
+
+---
+
+### ⏭️ NEXT STEP:
+Would you like to move on to the **Dashboard UI per role**, or go into the **Request Submission System** (the core of the maintenance flow)?
+
+
+Great — let’s now move on to building the **Request Submission System** 🔧 — this is the **core feature** of Fixit by Threalty.
+
+---
+
+## 🧱 STEP 4: Maintenance Request System
+
+This system lets users:
+- Submit requests with images, priorities, and categories.
+- View requests by status (Pending, In Progress, Completed, Archived).
+- Assign requests to vendors (for PMs/Landlords).
+- Track full history of a request.
+
+---
+
+### 📁 New Files:
+```
+fixit-backend/
+├── models/
+│   └── Request.js
+├── controllers/
+│   └── requestController.js
+├── routes/
+│   └── requestRoutes.js
+```
+
+---
+
+## ✅ 4.1 Request Model (`models/Request.js`)
+```js
+const mongoose = require('mongoose');
+
+const requestSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  description: String,
+  category: String,
+  priority: { type: String, enum: ['Low', 'Medium', 'High'], default: 'Low' },
+  images: [String], // Store image URLs or paths
+  status: { type: String, enum: ['Pending', 'In Progress', 'Completed', 'Archived'], default: 'Pending' },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', default: null },
+  assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  createdAt: { type: Date, default: Date.now },
+  resolvedAt: { type: Date, default: null },
+  comments: [
+    {
+      sender: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      message: String,
+      timestamp: { type: Date, default: Date.now }
+    }
+  ],
+  vendor: {
+    name: String,
+    contact: String
+  },
+  approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  tenantRef: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+}, { timestamps: true });
+
+module.exports = mongoose.model('Request', requestSchema);
+```
+
+---
+
+## ✅ 4.2 Request Controller (`controllers/requestController.js`)
+```js
+const Request = require('../models/Request');
+
+// Create maintenance request
+exports.createRequest = async (req, res) => {
+  const { title, description, category, priority, images } = req.body;
+  try {
+    const request = await Request.create({
+      title,
+      description,
+      category,
+      priority,
+      images,
+      createdBy: req.user._id,
+      tenantRef: req.user._id
+    });
+    res.status(201).json(request);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Get all user-related requests (for dashboard tabs)
+exports.getUserRequests = async (req, res) => {
+  try {
+    const requests = await Request.find({
+      $or: [
+        { createdBy: req.user._id },
+        { assignedTo: req.user._id }
+      ]
+    }).sort({ createdAt: -1 });
+    res.json(requests);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Add a comment to a request
+exports.addComment = async (req, res) => {
+  const { requestId, message } = req.body;
+  try {
+    const request = await Request.findById(requestId);
+    request.comments.push({
+      sender: req.user._id,
+      message
+    });
+    await request.save();
+    res.json(request);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Change status (assign, complete, archive)
+exports.updateStatus = async (req, res) => {
+  const { requestId, status } = req.body;
+  try {
+    const request = await Request.findById(requestId);
+    request.status = status;
+    if (status === 'Completed') request.resolvedAt = new Date();
+    await request.save();
+    res.json(request);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+```
+
+---
+
+## ✅ 4.3 Request Routes (`routes/requestRoutes.js`)
+```js
+const express = require('express');
+const router = express.Router();
+const {
+  createRequest,
+  getUserRequests,
+  addComment,
+  updateStatus
+} = require('../controllers/requestController');
+const { protect } = require('../middleware/authMiddleware');
+
+// Create maintenance request
+router.post('/create', protect, createRequest);
+
+// Fetch user-related requests
+router.get('/mine', protect, getUserRequests);
+
+// Comment on request
+router.post('/comment', protect, addComment);
+
+// Update request status
+router.put('/status', protect, updateStatus);
+
+module.exports = router;
+```
+
+---
+
+## ✅ 4.4 Register in `server.js`
+```js
+const requestRoutes = require('./routes/requestRoutes');
+app.use('/api/requests', requestRoutes);
+```
+
+---
+
+## 🧪 Test Flow (via Postman now or frontend soon)
+
+1. **POST `/api/requests/create`** → Create maintenance request
+2. **GET `/api/requests/mine`** → View requests for dashboard
+3. **POST `/api/requests/comment`** → Add chat comment to a request
+4. **PUT `/api/requests/status`** → Update status (In Progress, Completed, etc.)
+
+---
+
+## 🔍 What’s Next?
+Now that the core request system is in place, we can proceed to:
+- 🔜 **Vendor Management System**
+- 🧑‍💻 Role-based **Dashboards** with tabs + filters
+- 💬 **Chat-style Comments UI**
+- 📥 **File/Image upload system**
+
+Would you like to go into **Vendor Management**, **Dashboard UI**, or **image uploads + S3/local storage** next?
+
+Perfect — let's build the **Dashboard Management System** 🖥️ so each user sees relevant maintenance requests based on their role and can interact with them properly.
+
+---
+
+## 🧱 STEP 5: Dashboard System by Role
+
+We'll build:
+1. Backend route to fetch requests with filters
+2. Frontend pages for each role (Tenant, Landlord, PM)
+3. Tabs: All, Pending, In Progress, Completed, Archived
+4. Filters: Date range, Assigned/Unassigned, Created by
+5. Search bar + clickable rows
+
+---
+
+### ✅ 5.1 Backend — Enhanced Dashboard Endpoint
+
+Update or extend `requestController.js`:
+
+```js
+// Get requests for dashboard with filters
+exports.getFilteredRequests = async (req, res) => {
+  try {
+    const { status, createdBy, assigned, search, startDate, endDate } = req.query;
+
+    const query = {};
+
+    // Role-based visibility
+    if (req.user.role === 'Tenant') {
+      query.tenantRef = req.user._id;
+    } else if (req.user.role === 'Landlord' || req.user.role === 'PM') {
+      query.$or = [
+        { createdBy: req.user._id },
+        { assignedTo: req.user._id }
+      ];
+    }
+
+    if (status) query.status = status;
+    if (createdBy) query.createdBy = createdBy;
+    if (assigned === 'true') query.assignedTo = { $ne: null };
+    if (assigned === 'false') query.assignedTo = null;
+    if (search) query.title = { $regex: search, $options: 'i' };
+
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) query.createdAt.$gte = new Date(startDate);
+      if (endDate) query.createdAt.$lte = new Date(endDate);
+    }
+
+    const requests = await Request.find(query).sort({ createdAt: -1 });
+    res.json(requests);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+```
+
+Update route in `requestRoutes.js`:
+```js
+router.get('/dashboard', protect, getFilteredRequests);
+```
+
+---
+
+### ✅ 5.2 Frontend — React Dashboard UI Setup
+
+Create `DashboardPage.jsx` (one dynamic dashboard component for all roles):
+
+```jsx
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+
+const tabs = ['All', 'Pending', 'In Progress', 'Completed', 'Archived'];
+
+export default function DashboardPage() {
+  const [activeTab, setActiveTab] = useState('All');
+  const [requests, setRequests] = useState([]);
+  const [search, setSearch] = useState('');
+  const [filters, setFilters] = useState({ assigned: '', createdBy: '', startDate: '', endDate: '' });
+
+  const fetchRequests = async () => {
+    try {
+      const params = {
+        ...(activeTab !== 'All' && { status: activeTab }),
+        ...filters,
+        ...(search && { search })
+      };
+      const res = await axios.get('/api/requests/dashboard', { params });
+      setRequests(res.data);
+    } catch (err) {
+      console.error('Failed to load requests', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchRequests();
+  }, [activeTab, filters, search]);
+
+  return (
+    <div className="p-4">
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-xl font-bold">My Dashboard</h1>
+        <button className="bg-blue-500 text-white px-4 py-2 rounded">+ New Request</button>
+      </div>
+
+      <div className="flex space-x-4 mb-4">
+        {tabs.map(tab => (
+          <button
+            key={tab}
+            className={`px-3 py-1 rounded ${activeTab === tab ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
+            onClick={() => setActiveTab(tab)}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex space-x-2 mb-4">
+        <input
+          type="text"
+          placeholder="Search by title"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="border p-2 rounded w-1/3"
+        />
+        <input
+          type="date"
+          onChange={e => setFilters({ ...filters, startDate: e.target.value })}
+          className="border p-2 rounded"
+        />
+        <input
+          type="date"
+          onChange={e => setFilters({ ...filters, endDate: e.target.value })}
+          className="border p-2 rounded"
+        />
+      </div>
+
+      <div className="bg-white shadow-md rounded p-4">
+        <table className="w-full table-auto">
+          <thead>
+            <tr className="text-left">
+              <th>Title</th>
+              <th>Status</th>
+              <th>Priority</th>
+              <th>Created</th>
+              <th>Assigned</th>
+            </tr>
+          </thead>
+          <tbody>
+            {requests.map(req => (
+              <tr key={req._id} className="border-t hover:bg-gray-100 cursor-pointer">
+                <td>{req.title}</td>
+                <td>{req.status}</td>
+                <td>{req.priority}</td>
+                <td>{new Date(req.createdAt).toLocaleDateString()}</td>
+                <td>{req.assignedTo ? 'Yes' : 'No'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+### ✅ 5.3 Navigation Integration
+
+Add this dashboard route in your React app (`App.jsx` or Router file):
+
+```jsx
+import DashboardPage from './pages/DashboardPage';
+
+// Inside routes
+<Route path="/dashboard" element={<DashboardPage />} />
+```
+
+✅ Now, after login, redirect users to `/dashboard` based on role.
+
+---
+
+### 🔄 Coming Next:
+- Add **Request Detail Page** (clickable rows)
+- Role-based request actions (Assign, Mark Completed)
+- Sticky filters/sorting system
+- Notifications integration
+
+---
+
+Ready to move into **Request Detail Page + Role-Based Actions**, or would you prefer to build **Vendor Management** or **Image Uploads** next?
+
+Absolutely — great decision. Let’s properly set up the **Frontend Folder Structure** before building out the rest. Since we’re using **React + Vite + TailwindCSS**, the structure should be clean, modular, and scalable to handle components like Dashboards, Auth, Requests, Roles, etc.
+
+---
+
+## ✅ FRONTEND STRUCTURE OVERVIEW (Vite + React + Tailwind)
+
+Here’s a recommended directory structure:
+
+```
+/frontend
+├── public
+├── src
+│   ├── assets              # Static assets like logos, images
+│   ├── components          # Reusable UI components (buttons, cards, etc.)
+│   ├── context             # Global contexts (auth, permissions)
+│   ├── hooks               # Custom React hooks
+│   ├── layouts             # Layouts for role-based views (Sidebar, Navbar)
+│   ├── pages               # Route pages (Dashboard, Login, RequestForm)
+│   │   ├── dashboard       # Dashboard UI & logic per role
+│   │   ├── auth            # Login, Register, Forgot Password
+│   │   ├── requests        # Request detail, create/edit
+│   │   ├── settings        # Profile, Preferences, etc.
+│   ├── services            # API service layer (axios calls)
+│   ├── utils               # Helper functions (formatDate, validation)
+│   ├── App.jsx             # App entry with routes
+│   ├── main.jsx            # ReactDOM render
+│   ├── routes.jsx          # Route definitions with guards
+│   └── index.css           # TailwindCSS entry
+├── tailwind.config.js
+├── vite.config.js
+└── package.json
+```
+
+---
+
+## ✅ FILES TO SET UP NOW
+
+Here’s what we’ll immediately create to support the Dashboard and future requests:
+
+### 1. `src/components/`
+- `Navbar.jsx`
+- `Sidebar.jsx`
+- `RequestCard.jsx` (small reusable request display)
+- `Tabs.jsx` (tab switcher for dashboard)
+
+### 2. `src/layouts/`
+- `MainLayout.jsx` – wraps pages with Navbar + Sidebar
+- (Later: `TenantLayout.jsx`, `PMLayout.jsx`, `LandlordLayout.jsx` if needed)
+
+### 3. `src/pages/dashboard/`
+- `DashboardPage.jsx` (already started)
+- `DashboardFilters.jsx` (extract filters/search bar from dashboard)
+- (Optional later: `DashboardStats.jsx` for charts/counts)
+
+### 4. `src/pages/requests/`
+- `RequestDetail.jsx`
+- `NewRequestForm.jsx`
+- `EditRequestForm.jsx`
+
+### 5. `src/context/`
+- `AuthContext.jsx` (user data, login, logout)
+- `PermissionContext.jsx` (role, permissions)
+
+### 6. `src/services/`
+- `requestService.js` – handles all API calls likegetUserRequests, createRequest
+- `authService.js` – login, register, getCurrentUser
+
+### 7. `src/routes.jsx`
+Use `react-router-dom` for clean routes with role guards:
+```jsx
+<Route path="/dashboard" element={<DashboardPage />} />
+<Route path="/requests/:id" element={<RequestDetail />} />
+<Route path="/requests/new" element={<NewRequestForm />} />
+```
+
+---
+
+## ✅ SUGGESTED INITIAL WORKFLOW ORDER
+
+Here’s how we proceed efficiently:
+
+1. **Setup Contexts**: AuthContext (user), Permissions (role)
+2. **Setup Layout**: Navbar + Sidebar + MainLayout wrapper
+3. **DashboardPage.jsx** – continue development in that layout
+4. **Connect API** using Axios (`requestService.js`)
+5. **Routing System** (`App.jsx` + `routes.jsx`) with guards
+6. Build **RequestDetail** next
+
+---
+
+Would you like me to generate the starter code for all the folders + layout and routing setup in one go now?
+
+Perfect — manageable chunks it is. Let’s start with the **first chunk**, which sets up the foundation of your frontend:
+
+---
+
+## 🔰 CHUNK 1: FRONTEND BOOTSTRAP + CONTEXT SETUP
+
+This chunk includes:
+
+### ✅ 1. **Project Bootstrap (Vite + TailwindCSS + React Router)**
+Assumes you’ve already done:
+```bash
+npm create vite@latest fixit-frontend -- --template react
+cd fixit-frontend
+npm install
+npm install -D tailwindcss postcss autoprefixer
+npx tailwindcss init -p
+```
+
+**`tailwind.config.js`**
+```js
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+```
+
+**`src/index.css`**
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+```
+
+---
+
+### ✅ 2. **React Router Setup**
+
+**Install router:**
+```bash
+npm install react-router-dom
+```
+
+**`src/main.jsx`**
+```jsx
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
+import App from "./App.jsx";
+import "./index.css";
+
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </React.StrictMode>
+);
+```
+
+**`src/App.jsx`**
+```jsx
+import { Routes, Route } from "react-router-dom";
+import DashboardPage from "./pages/dashboard/DashboardPage";
+
+function App() {
+  return (
+    <Routes>
+      <Route path="/dashboard" element={<DashboardPage />} />
+    </Routes>
+  );
+}
+
+export default App;
+```
+
+---
+
+### ✅ 3. **AuthContext Setup**
+
+**Install dependencies (optional but helpful later):**
+```bash
+npm install jwt-decode
+```
+
+**`src/context/AuthContext.jsx`**
+```jsx
+import { createContext, useContext, useEffect, useState } from "react";
+
+const AuthContext = createContext();
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null); // {id, name, email, role}
+
+  const login = (userData) => {
+    setUser(userData);
+    localStorage.setItem("user", JSON.stringify(userData));
+  };
+
+  const logout = () => {
+    setUser(null);
+    localStorage.removeItem("user");
+  };
+
+  useEffect(() => {
+    const stored = localStorage.getItem("user");
+    if (stored) {
+      setUser(JSON.parse(stored));
+    }
+  }, []);
+
+  return (
+    <AuthContext.Provider value={{ user, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => useContext(AuthContext);
+```
+
+Update **`main.jsx`** to wrap your app in `AuthProvider`:
+```jsx
+import { AuthProvider } from "./context/AuthContext";
+
+<React.StrictMode>
+  <BrowserRouter>
+    <AuthProvider>
+      <App />
+    </AuthProvider>
+  </BrowserRouter>
+</React.StrictMode>
+```
+
+---
+
+✅ **This chunk gives us:**
+- Tailwind set up
+- React Router working
+- AuthContext to track user login
+- First route `/dashboard` prepared
+
+---
+
+Would you like to proceed to **Chunk 2: Layouts (Sidebar + Navbar + MainLayout)** next?
+
+Perfect — manageable chunks it is. Let’s start with the **first chunk**, which sets up the foundation of your frontend:
+
+---
+
+## 🔰 CHUNK 1: FRONTEND BOOTSTRAP + CONTEXT SETUP
+
+This chunk includes:
+
+### ✅ 1. **Project Bootstrap (Vite + TailwindCSS + React Router)**
+Assumes you’ve already done:
+```bash
+npm create vite@latest fixit-frontend -- --template react
+cd fixit-frontend
+npm install
+npm install -D tailwindcss postcss autoprefixer
+npx tailwindcss init -p
+```
+
+**`tailwind.config.js`**
+```js
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+```
+
+**`src/index.css`**
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+```
+
+---
+
+### ✅ 2. **React Router Setup**
+
+**Install router:**
+```bash
+npm install react-router-dom
+```
+
+**`src/main.jsx`**
+```jsx
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
+import App from "./App.jsx";
+import "./index.css";
+
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </React.StrictMode>
+);
+```
+
+**`src/App.jsx`**
+```jsx
+import { Routes, Route } from "react-router-dom";
+import DashboardPage from "./pages/dashboard/DashboardPage";
+
+function App() {
+  return (
+    <Routes>
+      <Route path="/dashboard" element={<DashboardPage />} />
+    </Routes>
+  );
+}
+
+export default App;
+```
+
+---
+
+### ✅ 3. **AuthContext Setup**
+
+**Install dependencies (optional but helpful later):**
+```bash
+npm install jwt-decode
+```
+
+**`src/context/AuthContext.jsx`**
+```jsx
+import { createContext, useContext, useEffect, useState } from "react";
+
+const AuthContext = createContext();
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null); // {id, name, email, role}
+
+  const login = (userData) => {
+    setUser(userData);
+    localStorage.setItem("user", JSON.stringify(userData));
+  };
+
+  const logout = () => {
+    setUser(null);
+    localStorage.removeItem("user");
+  };
+
+  useEffect(() => {
+    const stored = localStorage.getItem("user");
+    if (stored) {
+      setUser(JSON.parse(stored));
+    }
+  }, []);
+
+  return (
+    <AuthContext.Provider value={{ user, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => useContext(AuthContext);
+```
+
+Update **`main.jsx`** to wrap your app in `AuthProvider`:
+```jsx
+import { AuthProvider } from "./context/AuthContext";
+
+<React.StrictMode>
+  <BrowserRouter>
+    <AuthProvider>
+      <App />
+    </AuthProvider>
+  </BrowserRouter>
+</React.StrictMode>
+```
+
+---
+
+✅ **This chunk gives us:**
+- Tailwind set up
+- React Router working
+- AuthContext to track user login
+- First route `/dashboard` prepared
+
+---
+
+Would you like to proceed to **Chunk 2: Layouts (Sidebar + Navbar + MainLayout)** next?
+
+Great — here’s **Chunk 2: Layouts** for your Fixit frontend. This chunk gives us a reusable structure with a sidebar, top navbar, and a main content area. Let’s go:
+
+---
+
+## 🧩 CHUNK 2: LAYOUTS (Sidebar + Navbar + MainLayout)
+
+### 📁 Folder Structure for Layouts
+
+```
+src/
+├── components/
+│   ├── layout/
+│   │   ├── Sidebar.jsx
+│   │   ├── Navbar.jsx
+│   │   └── MainLayout.jsx
+```
+
+---
+
+### 1️⃣ `Sidebar.jsx` – Role-aware navigation
+
+```jsx
+import { Link, useLocation } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
+
+const Sidebar = () => {
+  const { user } = useAuth();
+  const { pathname } = useLocation();
+
+  const navItems = [
+    { label: "Dashboard", path: "/dashboard" },
+    { label: "Requests", path: "/dashboard/requests" },
+    { label: "Reports", path: "/dashboard/reports" },
+    ...(user?.role === "property_manager" || user?.role === "landlord"
+      ? [{ label: "Vendors", path: "/dashboard/vendors" }]
+      : []),
+    { label: "Settings", path: "/dashboard/settings" },
+  ];
+
+  return (
+    <aside className="w-64 bg-white border-r min-h-screen p-4 shadow-sm">
+      <h2 className="text-xl font-bold mb-6 text-blue-600">Fixit Dashboard</h2>
+      <ul className="space-y-3">
+        {navItems.map((item) => (
+          <li key={item.path}>
+            <Link
+              to={item.path}
+              className={`block px-3 py-2 rounded hover:bg-blue-50 ${
+                pathname === item.path ? "bg-blue-100 font-semibold" : ""
+              }`}
+            >
+              {item.label}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </aside>
+  );
+};
+
+export default Sidebar;
+```
+
+---
+
+### 2️⃣ `Navbar.jsx` – Top user controls
+
+```jsx
+import { useAuth } from "../../context/AuthContext";
+
+const Navbar = () => {
+  const { user, logout } = useAuth();
+
+  return (
+    <nav className="h-16 flex justify-between items-center px-6 border-b bg-white shadow-sm">
+      <h1 className="text-lg font-medium text-gray-700">Welcome, {user?.name}</h1>
+      <div className="flex items-center gap-4">
+        <button className="text-sm text-red-600" onClick={logout}>
+          Logout
+        </button>
+      </div>
+    </nav>
+  );
+};
+
+export default Navbar;
+```
+
+---
+
+### 3️⃣ `MainLayout.jsx` – Puts it all together
+
+```jsx
+import Sidebar from "./Sidebar";
+import Navbar from "./Navbar";
+
+const MainLayout = ({ children }) => {
+  return (
+    <div className="flex h-screen">
+      <Sidebar />
+      <div className="flex-1 flex flex-col">
+        <Navbar />
+        <main className="flex-1 overflow-y-auto bg-gray-50 p-6">
+          {children}
+        </main>
+      </div>
+    </div>
+  );
+};
+
+export default MainLayout;
+```
+
+---
+
+### 🧪 Update `DashboardPage.jsx` to use MainLayout
+
+**`src/pages/dashboard/DashboardPage.jsx`**
+```jsx
+import MainLayout from "../../components/layout/MainLayout";
+
+const DashboardPage = () => {
+  return (
+    <MainLayout>
+      <div className="text-gray-800">
+        <h2 className="text-2xl font-bold mb-4">Your Maintenance Overview</h2>
+        <p>This is your dashboard. You’ll see recent requests, alerts, and actions here.</p>
+      </div>
+    </MainLayout>
+  );
+};
+
+export default DashboardPage;
+```
+
+---
+
+✅ **This chunk gives you:**
+- A persistent sidebar with dynamic role-aware links
+- A top navbar with user greeting and logout
+- A responsive layout for all dashboard subpages
+
+---
+
+Would you like to proceed to **Chunk 3: Role-Based Routing & Dashboard Tabs Setup** next?
+
+Awesome — let’s move on to **Chunk 3: Role-Based Routing & Dashboard Tabs Setup**. This chunk wires up protected routes, dynamic tabs (`All`, `Pending`, `Ongoing`, etc.), and ensures users only access what they should.
+
+---
+
+## 🧩 CHUNK 3: Role-Based Routing & Dashboard Tabs
+
+---
+
+### 📁 Folder/File Prep
+
+```
+src/
+├── pages/
+│   └── dashboard/
+│       ├── DashboardPage.jsx
+│       ├── RequestsPage.jsx
+│       ├── ReportsPage.jsx
+│       ├── VendorsPage.jsx
+│       └── SettingsPage.jsx
+├── components/
+│   └── requests/
+│       ├── RequestTabs.jsx
+│       └── RequestTable.jsx
+├── routes/
+│   └── ProtectedRoute.jsx
+```
+
+---
+
+### 1️⃣ `ProtectedRoute.jsx` – Auth & Role Guard
+
+```jsx
+import { Navigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
+
+const ProtectedRoute = ({ children, allowedRoles }) => {
+  const { user, isAuthenticated } = useAuth();
+
+  if (!isAuthenticated) return <Navigate to="/login" />;
+
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    return <div className="p-6 text-red-600">Access Denied</div>;
+  }
+
+  return children;
+};
+
+export default ProtectedRoute;
+```
+
+---
+
+### 2️⃣ `RequestTabs.jsx` – Tab Navigation UI
+
+```jsx
+const tabs = ["All", "Pending", "Ongoing", "Completed", "Archived"];
+
+const RequestTabs = ({ currentTab, onTabChange }) => {
+  return (
+    <div className="flex space-x-4 mb-6">
+      {tabs.map((tab) => (
+        <button
+          key={tab}
+          className={`px-4 py-2 rounded ${
+            currentTab === tab
+              ? "bg-blue-600 text-white"
+              : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+          }`}
+          onClick={() => onTabChange(tab)}
+        >
+          {tab}
+        </button>
+      ))}
+    </div>
+  );
+};
+
+export default RequestTabs;
+```
+
+---
+
+### 3️⃣ `RequestTable.jsx` – Placeholder Table UI
+
+```jsx
+const RequestTable = ({ requests }) => {
+  return (
+    <div className="bg-white p-4 rounded shadow">
+      <table className="w-full table-auto">
+        <thead>
+          <tr className="text-left border-b">
+            <th className="py-2">Title</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Priority</th>
+          </tr>
+        </thead>
+        <tbody>
+          {requests.map((req) => (
+            <tr key={req._id} className="border-b hover:bg-gray-100 cursor-pointer">
+              <td className="py-2">{req.title}</td>
+              <td>{req.status}</td>
+              <td>{new Date(req.createdAt).toLocaleDateString()}</td>
+              <td>{req.priority}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+export default RequestTable;
+```
+
+---
+
+### 4️⃣ `RequestsPage.jsx` – Combined Tabs + Table
+
+```jsx
+import { useState } from "react";
+import MainLayout from "../../components/layout/MainLayout";
+import RequestTabs from "../../components/requests/RequestTabs";
+import RequestTable from "../../components/requests/RequestTable";
+
+// Temp data
+const sampleRequests = [
+  { _id: "1", title: "Leaking tap", status: "Pending", createdAt: Date.now(), priority: "High" },
+  { _id: "2", title: "Broken lock", status: "Ongoing", createdAt: Date.now(), priority: "Low" },
+];
+
+const RequestsPage = () => {
+  const [currentTab, setCurrentTab] = useState("All");
+
+  const filtered = sampleRequests.filter((r) =>
+    currentTab === "All" ? true : r.status === currentTab
+  );
+
+  return (
+    <MainLayout>
+      <h2 className="text-2xl font-bold mb-4">Maintenance Requests</h2>
+      <RequestTabs currentTab={currentTab} onTabChange={setCurrentTab} />
+      <RequestTable requests={filtered} />
+    </MainLayout>
+  );
+};
+
+export default RequestsPage;
+```
+
+---
+
+### 5️⃣ Update `App.jsx` to Add Protected Routes
+
+```jsx
+import { Routes, Route } from "react-router-dom";
+import DashboardPage from "./pages/dashboard/DashboardPage";
+import RequestsPage from "./pages/dashboard/RequestsPage";
+import ReportsPage from "./pages/dashboard/ReportsPage";
+import VendorsPage from "./pages/dashboard/VendorsPage";
+import SettingsPage from "./pages/dashboard/SettingsPage";
+import ProtectedRoute from "./routes/ProtectedRoute";
+
+<Routes>
+  <Route
+    path="/dashboard"
+    element={
+      <ProtectedRoute>
+        <DashboardPage />
+      </ProtectedRoute>
+    }
+  />
+  <Route
+    path="/dashboard/requests"
+    element={
+      <ProtectedRoute>
+        <RequestsPage />
+      </ProtectedRoute>
+    }
+  />
+  <Route
+    path="/dashboard/reports"
+    element={
+      <ProtectedRoute allowedRoles={["property_manager", "landlord"]}>
+        <ReportsPage />
+      </ProtectedRoute>
+    }
+  />
+  <Route
+    path="/dashboard/vendors"
+    element={
+      <ProtectedRoute allowedRoles={["property_manager", "landlord"]}>
+        <VendorsPage />
+      </ProtectedRoute>
+    }
+  />
+  <Route
+    path="/dashboard/settings"
+    element={
+      <ProtectedRoute>
+        <SettingsPage />
+      </ProtectedRoute>
+    }
+  />
+</Routes>;
+```
+
+---
+
+✅ **This chunk gives you:**
+- Role-protected routing and access control
+- Dashboard tab system for filtering requests
+- Requests table scaffolding for each tab
+- Placeholder sample data (real API coming next)
+
+---
+
+Ready to move to **Chunk 4: Connect Request Table to Real Backend API + Add Search & Filter**?
+
+Perfect! Let’s move on to **Chunk 4: Connect Request Table to Backend + Add Search & Filter**. In this chunk, we’ll replace the sample data with real API calls and add basic filters to help users sort through requests.
+
+---
+
+## 🧩 CHUNK 4: Connect to Backend + Search/Filter System
+
+---
+
+### ✅ What You’ll Get:
+- Fetch real maintenance requests via Axios from backend
+- Filter by status (via tab), priority, and keyword (search)
+- Cleaner loading and error handling logic
+
+---
+
+### 1️⃣ Update `RequestsPage.jsx`
+
+```jsx
+import { useState, useEffect } from "react";
+import axios from "axios";
+import RequestTabs from "../../components/requests/RequestTabs";
+import RequestTable from "../../components/requests/RequestTable";
+import MainLayout from "../../components/layout/MainLayout";
+
+const RequestsPage = () => {
+  const [requests, setRequests] = useState([]);
+  const [filtered, setFiltered] = useState([]);
+  const [currentTab, setCurrentTab] = useState("All");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("All");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const fetchRequests = async () => {
+      setLoading(true);
+      try {
+        const res = await axios.get("/api/requests");
+        setRequests(res.data);
+      } catch (err) {
+        console.error(err);
+        setError("Failed to fetch requests");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRequests();
+  }, []);
+
+  useEffect(() => {
+    let data = [...requests];
+    if (currentTab !== "All") {
+      data = data.filter((r) => r.status === currentTab);
+    }
+    if (priorityFilter !== "All") {
+      data = data.filter((r) => r.priority === priorityFilter);
+    }
+    if (searchTerm) {
+      data = data.filter((r) =>
+        r.title.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    setFiltered(data);
+  }, [requests, currentTab, priorityFilter, searchTerm]);
+
+  return (
+    <MainLayout>
+      <h2 className="text-2xl font-bold mb-4">Maintenance Requests</h2>
+
+      <RequestTabs currentTab={currentTab} onTabChange={setCurrentTab} />
+
+      <div className="flex justify-between mb-4">
+        <input
+          type="text"
+          placeholder="Search title..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="px-4 py-2 border rounded w-1/2"
+        />
+        <select
+          value={priorityFilter}
+          onChange={(e) => setPriorityFilter(e.target.value)}
+          className="px-4 py-2 border rounded"
+        >
+          <option>All</option>
+          <option>High</option>
+          <option>Medium</option>
+          <option>Low</option>
+        </select>
+      </div>
+
+      {loading ? (
+        <p className="text-blue-600">Loading...</p>
+      ) : error ? (
+        <p className="text-red-600">{error}</p>
+      ) : (
+        <RequestTable requests={filtered} />
+      )}
+    </MainLayout>
+  );
+};
+
+export default RequestsPage;
+```
+
+---
+
+### 2️⃣ Confirm API Endpoint on Backend
+
+Make sure your backend has a route like this:
+
+```js
+// backend/routes/requestRoutes.js
+router.get("/", protect,getUserRequests); // GET /api/requests
+```
+
+And that it returns:
+
+```json
+[
+  {
+    "_id": "abc123",
+    "title": "Leaking Pipe",
+    "status": "Pending",
+    "priority": "High",
+    "createdAt": "2025-04-28T00:00:00.000Z"
+  }
+]
+```
+
+If using JWT, don't forget to set Axios header globally:
+
+```js
+axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+```
+
+---
+
+✅ **Now you have:**
+- Real data loading from backend
+- Keyword search
+- Priority dropdown filter
+- Tabs filtering by status
+
+---
+
+Ready for **Chunk 5: Create Request Detail Page with Role-Based Actions (Edit, Approve, Assign, Comment)**?
+
+Awesome — let’s dive into **Chunk 5: Request Detail Page + Role-Based Actions**. This will allow users to view and interact with a single maintenance request, and show/hide actions depending on whether they’re a **Tenant**, **Landlord**, or **Property Manager**.
+
+---
+
+## 🧩 CHUNK 5: Request Detail Page + Role-Based Actions
+
+---
+
+### ✅ What You’ll Build:
+- A detailed view of a request with full info
+- Role-based actions:
+  - **Tenant:** View, comment, mark as resolved (optional)
+  - **PM/Landlord:** Assign vendor, reassign, mark as completed, update status, comment
+- Comments/chat system
+- Timeline / history (basic)
+
+---
+
+### 1️⃣ Route Setup
+
+```jsx
+// src/App.jsx (or wherever routes are defined)
+<Route path="/requests/:id" element={<RequestDetailPage />} />
+```
+
+---
+
+### 2️⃣ `RequestDetailPage.jsx`
+
+```jsx
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import axios from "axios";
+
+const RequestDetailPage = () => {
+  const { id } = useParams();
+  const [request, setRequest] = useState(null);
+  const [comment, setComment] = useState("");
+  const [loading, setLoading] = useState(true);
+  const userRole = localStorage.getItem("role"); // or from context
+
+  useEffect(() => {
+    const fetchRequest = async () => {
+      try {
+        const res = await axios.get(`/api/requests/${id}`);
+        setRequest(res.data);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRequest();
+  }, [id]);
+
+  const handleAddComment = async () => {
+    if (!comment) return;
+    const newComment = {
+      text: comment,
+      sender: "Me", // replace with actual user
+      timestamp: new Date().toISOString(),
+    };
+    try {
+      await axios.post(`/api/requests/${id}/comments`, newComment);
+      setRequest((prev) => ({
+        ...prev,
+        comments: [...prev.comments, newComment],
+      }));
+      setComment("");
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleStatusChange = async (newStatus) => {
+    try {
+      await axios.put(`/api/requests/${id}/status`, { status: newStatus });
+      setRequest((prev) => ({ ...prev, status: newStatus }));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  if (loading) return <p>Loading...</p>;
+  if (!request) return <p>Not found</p>;
+
+  return (
+    <div className="p-6">
+      <h2 className="text-2xl font-semibold mb-4">{request.title}</h2>
+      <p className="mb-2">{request.description}</p>
+      <p className="mb-2">
+        <strong>Status:</strong> {request.status}
+      </p>
+      <p className="mb-2">
+        <strong>Priority:</strong> {request.priority}
+      </p>
+
+      {/* ROLE-BASED ACTIONS */}
+      {userRole === "landlord" || userRole === "manager" ? (
+        <div className="mb-4">
+          <button
+            className="btn bg-green-600 text-white px-4 py-2 rounded mr-2"
+            onClick={() => handleStatusChange("In Progress")}
+          >
+            Mark In Progress
+          </button>
+          <button
+            className="btn bg-blue-600 text-white px-4 py-2 rounded mr-2"
+            onClick={() => handleStatusChange("Completed")}
+          >
+            Mark Completed
+          </button>
+        </div>
+      ) : null}
+
+      {userRole === "tenant" && request.status !== "Completed" && (
+        <div className="mb-4">
+          <button
+            className="btn bg-yellow-600 text-white px-4 py-2 rounded"
+            onClick={() => handleStatusChange("Resolved")}
+          >
+            Mark as Resolved
+          </button>
+        </div>
+      )}
+
+      {/* COMMENTS */}
+      <div className="mt-6">
+        <h3 className="text-lg font-semibold mb-2">Comments</h3>
+        <div className="mb-2 max-h-40 overflow-y-auto bg-gray-100 p-2 rounded">
+          {request.comments?.length > 0 ? (
+            request.comments.map((c, i) => (
+              <div key={i} className="mb-1">
+                <strong>{c.sender}</strong>: {c.text}{" "}
+                <span className="text-sm text-gray-500">
+                  ({new Date(c.timestamp).toLocaleString()})
+                </span>
+              </div>
+            ))
+          ) : (
+            <p>No comments yet.</p>
+          )}
+        </div>
+        <input
+          type="text"
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          placeholder="Add comment..."
+          className="border px-4 py-2 rounded w-full"
+        />
+        <button
+          onClick={handleAddComment}
+          className="mt-2 bg-indigo-600 text-white px-4 py-2 rounded"
+        >
+          Add Comment
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default RequestDetailPage;
+```
+
+---
+
+### 3️⃣ Sample Backend Endpoints You’ll Need
+
+```js
+// GET /api/requests/:id
+// POST /api/requests/:id/comments
+// PUT /api/requests/:id/status
+```
+
+---
+
+✅ You now have:
+- Request detail view
+- Comment/chat section
+- Role-based action buttons
+- Status update flow
+
+---
+
+Would you like to proceed with **Chunk 6: Vendor Management + Assign Vendor to Request** next?
+
+Perfect! Let’s now move on to **🧩 Chunk 6: Vendor Management + Assign Vendor to Request**, which allows Landlords and Property Managers to assign vendors to a maintenance request and manage vendor information within the system.
+
+---
+
+## 🧩 CHUNK 6: Vendor Management + Assign Vendor to Request
+
+---
+
+### ✅ What You’ll Build:
+- A page to list and add vendors
+- A component to assign a vendor to a maintenance request
+- Backend API integration to save assigned vendor
+
+---
+
+### 1️⃣ Vendor List Page (Optional Admin View)
+
+Create: `src/pages/VendorListPage.jsx`
+
+```jsx
+import { useEffect, useState } from "react";
+import axios from "axios";
+
+const VendorListPage = () => {
+  const [vendors, setVendors] = useState([]);
+  const [newVendor, setNewVendor] = useState({ name: "", contact: "" });
+
+  const fetchVendors = async () => {
+    try {
+      const res = await axios.get("/api/vendors");
+      setVendors(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    fetchVendors();
+  }, []);
+
+  const handleAddVendor = async () => {
+    try {
+      await axios.post("/api/vendors", newVendor);
+      setNewVendor({ name: "", contact: "" });
+      fetchVendors();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  return (
+    <div className="p-6">
+      <h2 className="text-xl font-bold mb-4">Vendors</h2>
+
+      <div className="mb-4">
+        <input
+          className="border p-2 mr-2"
+          placeholder="Vendor name"
+          value={newVendor.name}
+          onChange={(e) =>
+            setNewVendor({ ...newVendor, name: e.target.value })
+          }
+        />
+        <input
+          className="border p-2 mr-2"
+          placeholder="Contact info"
+          value={newVendor.contact}
+          onChange={(e) =>
+            setNewVendor({ ...newVendor, contact: e.target.value })
+          }
+        />
+        <button
+          className="bg-blue-600 text-white px-4 py-2 rounded"
+          onClick={handleAddVendor}
+        >
+          Add Vendor
+        </button>
+      </div>
+
+      <ul className="list-disc ml-5">
+        {vendors.map((v) => (
+          <li key={v._id}>
+            <strong>{v.name}</strong> - {v.contact}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
+
+export default VendorListPage;
+```
+
+---
+
+### 2️⃣ Vendor Assignment in `RequestDetailPage.jsx`
+
+Add inside the `RequestDetailPage` component under role-based controls:
+
+```jsx
+const [vendors, setVendors] = useState([]);
+const [selectedVendor, setSelectedVendor] = useState("");
+
+useEffect(() => {
+  const fetchVendors = async () => {
+    const res = await axios.get("/api/vendors");
+    setVendors(res.data);
+  };
+  fetchVendors();
+}, []);
+```
+
+Then render dropdown and button:
+
+```jsx
+{(userRole === "landlord" || userRole === "manager") && (
+  <div className="mb-4">
+    <label className="block mb-1">Assign Vendor:</label>
+    <select
+      value={selectedVendor}
+      onChange={(e) => setSelectedVendor(e.target.value)}
+      className="border p-2 mr-2"
+    >
+      <option value="">Select vendor</option>
+      {vendors.map((v) => (
+        <option key={v._id} value={v._id}>
+          {v.name}
+        </option>
+      ))}
+    </select>
+    <button
+      className="bg-purple-600 text-white px-4 py-2 rounded"
+      onClick={async () => {
+        try {
+          await axios.put(`/api/requests/${id}/assign`, {
+            vendorId: selectedVendor,
+          });
+          alert("Vendor assigned!");
+        } catch (err) {
+          console.error(err);
+        }
+      }}
+    >
+      Assign
+    </button>
+  </div>
+)}
+```
+
+---
+
+### 3️⃣ Backend Endpoints Required
+
+You'll need:
+```http
+GET    /api/vendors
+POST   /api/vendors
+PUT    /api/requests/:id/assign
+```
+
+Backend logic will:
+- Save `assignedVendorId` to the request
+- Optionally populate vendor details in response
+
+---
+
+✅ Now you’ve got:
+- A vendor list management UI
+- Ability to assign vendors to a request (PM/Landlord only)
+- Hooked up to the backend API
+
+---
+
+Would you like to proceed with **Chunk 7: Dashboard Widgets + Stats + Filtering Requests** next?
+
+Great! Let’s move on to **🧩 Chunk 8: Scheduled Maintenance + Reminders Setup** — this will allow the property managers (PMs) and landlords to schedule recurring or one-time maintenance tasks, set reminders, and track them.
+
+---
+
+## 🧩 CHUNK 8: Scheduled Maintenance + Reminders Setup
+
+---
+
+### ✅ What You’ll Build:
+- Schedule one-time and recurring maintenance tasks
+- Set reminders for scheduled tasks
+- Display scheduled tasks in the dashboard and notify users
+
+---
+
+### 1️⃣ Backend - Create Maintenance Model
+
+In the backend, add a model for scheduled maintenance tasks. In `models/ScheduledMaintenance.js`:
+
+```js
+const mongoose = require("mongoose");
+
+const maintenanceSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  description: { type: String },
+  propertyId: { type: mongoose.Schema.Types.ObjectId, ref: "Property", required: true },
+  scheduledDate: { type: Date, required: true },
+  recurring: { type: Boolean, default: false },
+  frequency: { type: String, enum: ["weekly", "monthly", "quarterly", "yearly"], default: "monthly" },
+  reminderDate: { type: Date },
+  assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+});
+
+module.exports = mongoose.model("ScheduledMaintenance", maintenanceSchema);
+```
+
+### 2️⃣ Backend - Create API Endpoints
+
+In `routes/maintenance.js`, add endpoints to create, update, and retrieve scheduled maintenance tasks:
+
+```js
+const express = require("express");
+const ScheduledMaintenance = require("../models/ScheduledMaintenance");
+const router = express.Router();
+
+// Create scheduled maintenance task
+router.post("/", async (req, res) => {
+  const { title, description, propertyId, scheduledDate, recurring, frequency, reminderDate, assignedTo } = req.body;
+  const task = new ScheduledMaintenance({
+    title,
+    description,
+    propertyId,
+    scheduledDate,
+    recurring,
+    frequency,
+    reminderDate,
+    assignedTo,
+    createdBy: req.user._id, // assuming auth middleware adds user
+  });
+
+  try {
+    await task.save();
+    res.status(201).json(task);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Get all scheduled tasks for a property or user
+router.get("/", async (req, res) => {
+  try {
+    const tasks = await ScheduledMaintenance.find({ createdBy: req.user._id }).populate("assignedTo");
+    res.status(200).json(tasks);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = router;
+```
+
+### 3️⃣ Frontend - Maintenance Scheduler UI
+
+In `MaintenanceScheduler.jsx`, create a form for scheduling maintenance:
+
+```jsx
+import React, { useState } from "react";
+import axios from "axios";
+
+const MaintenanceScheduler = () => {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [propertyId, setPropertyId] = useState(""); // This would be fetched from user properties
+  const [scheduledDate, setScheduledDate] = useState("");
+  const [recurring, setRecurring] = useState(false);
+  const [frequency, setFrequency] = useState("monthly");
+  const [reminderDate, setReminderDate] = useState("");
+  const [assignedTo, setAssignedTo] = useState(""); // Assign technician or vendor
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    try {
+      const newTask = {
+        title,
+        description,
+        propertyId,
+        scheduledDate,
+        recurring,
+        frequency,
+        reminderDate,
+        assignedTo,
+      };
+
+      await axios.post("/api/maintenance", newTask);
+      alert("Maintenance scheduled successfully!");
+    } catch (err) {
+      console.error(err);
+      alert("Error scheduling maintenance.");
+    }
+  };
+
+  return (
+    <div className="max-w-lg mx-auto">
+      <form onSubmit={handleSubmit} className="bg-white shadow-md rounded-md p-6">
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700">Title</label>
+          <input
+            type="text"
+            className="mt-1 block w-full p-2 border rounded-md"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+          />
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700">Description</label>
+          <textarea
+            className="mt-1 block w-full p-2 border rounded-md"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows="4"
+          ></textarea>
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700">Scheduled Date</label>
+          <input
+            type="date"
+            className="mt-1 block w-full p-2 border rounded-md"
+            value={scheduledDate}
+            onChange={(e) => setScheduledDate(e.target.value)}
+            required
+          />
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700">Recurring</label>
+          <input
+            type="checkbox"
+            checked={recurring}
+            onChange={() => setRecurring(!recurring)}
+          /> Yes
+        </div>
+        {recurring && (
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700">Frequency</label>
+            <select
+              className="mt-1 block w-full p-2 border rounded-md"
+              value={frequency}
+              onChange={(e) => setFrequency(e.target.value)}
+            >
+              <option value="monthly">Monthly</option>
+              <option value="quarterly">Quarterly</option>
+              <option value="yearly">Yearly</option>
+            </select>
+          </div>
+        )}
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700">Reminder Date</label>
+          <input
+            type="date"
+            className="mt-1 block w-full p-2 border rounded-md"
+            value={reminderDate}
+            onChange={(e) => setReminderDate(e.target.value)}
+          />
+        </div>
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700">Assign Technician/Vendor</label>
+          <input
+            type="text"
+            className="mt-1 block w-full p-2 border rounded-md"
+            value={assignedTo}
+            onChange={(e) => setAssignedTo(e.target.value)}
+          />
+        </div>
+        <button type="submit" className="w-full p-2 bg-blue-500 text-white rounded-md">
+          Schedule Maintenance
+        </button>
+      </form>
+    </div>
+  );
+};
+
+export default MaintenanceScheduler;
+```
+
+---
+
+### 4️⃣ Frontend - Display Scheduled Tasks
+
+In `DashboardPage.jsx`, add a section to display the scheduled maintenance:
+
+```jsx
+const [maintenanceTasks, setMaintenanceTasks] = useState([]);
+
+useEffect(() => {
+  const fetchMaintenanceTasks = async () => {
+    const response = await axios.get("/api/maintenance");
+    setMaintenanceTasks(response.data);
+  };
+
+  fetchMaintenanceTasks();
+}, []);
+
+return (
+  <div>
+    <h2 className="text-lg font-semibold mb-4">Scheduled Maintenance</h2>
+    <div className="space-y-4">
+      {maintenanceTasks.map((task) => (
+        <div key={task._id} className="bg-white p-4 rounded-lg shadow-md">
+          <h3 className="font-medium text-xl">{task.title}</h3>
+          <p>{task.description}</p>
+          <p className="text-sm text-gray-500">Scheduled for: {new Date(task.scheduledDate).toLocaleDateString()}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+```
+
+---
+
+### 5️⃣ Reminders via Notifications
+
+You can use services like **node-cron** or **Agenda** to send email notifications or app-based reminders when a scheduled task is near. This would require setting up background jobs on the backend to check for upcoming tasks and send notifications.
+
+---
+
+✅ **Outcome:**  
+- Maintenance tasks can be scheduled with flexibility (recurring or one-time).
+- Tasks are displayed on the dashboard and can be assigned to technicians/vendors.
+- Reminders can be set to notify users ahead of the task.
+
+---
+
+Would you like to continue to **🧩 Chunk 9: Reporting & Tracking** next?
+
+Great! Let's proceed with **🔟 Chunk 9: Reporting & Tracking**.
+
+---
+
+## 🔟 Reporting & Tracking
+
+### 📌 Goal:
+Provide landlords and property managers with the ability to **view, filter, and export** maintenance request data by **date, status, category, or property**.
+
+---
+
+### ✅ Backend Implementation
+
+#### 📁 `controllers/reportController.js`
+
+```js
+const Request = require("../models/Request");
+const { Parser } = require("json2csv"); // For CSV export
+
+exports.getReport = async (req, res) => {
+  try {
+    const { startDate, endDate, status, category, propertyId } = req.query;
+    const filters = { createdBy: req.user._id };
+
+    if (status) filters.status = status;
+    if (category) filters.category = category;
+    if (propertyId) filters.tenantRef = propertyId;
+    if (startDate && endDate) {
+      filters.createdAt = { $gte: new Date(startDate), $lte: new Date(endDate) };
+    }
+
+    const requests = await Request.find(filters).populate("tenantRef");
+
+    if (req.query.format === "csv") {
+      const fields = ["title", "status", "priority", "createdAt", "resolvedAt"];
+      const parser = new Parser({ fields });
+      const csv = parser.parse(requests);
+      res.header("Content-Type", "text/csv");
+      res.attachment("report.csv");
+      return res.send(csv);
+    }
+
+    res.status(200).json(requests);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+```
+
+#### 📁 `routes/report.js`
+
+```js
+const express = require("express");
+const router = express.Router();
+const auth = require("../middleware/auth");
+const { getReport } = require("../controllers/reportController");
+
+router.get("/", auth, getReport);
+
+module.exports = router;
+```
+
+---
+
+### ✅ Frontend Setup
+
+#### 📁 `pages/ReportsPage.jsx`
+
+```jsx
+import React, { useState, useEffect } from "react";
+import axios from "../utils/axiosInstance";
+
+const ReportsPage = () => {
+  const [filters, setFilters] = useState({ status: "", category: "", startDate: "", endDate: "" });
+  const [reports, setReports] = useState([]);
+
+  const fetchReports = async () => {
+    const { status, category, startDate, endDate } = filters;
+    const res = await axios.get("/report", { params: { status, category, startDate, endDate } });
+    setReports(res.data);
+  };
+
+  const downloadCSV = async () => {
+    const res = await axios.get("/report?format=csv", {
+      responseType: "blob",
+      params: filters,
+    });
+    const url = window.URL.createObjectURL(new Blob([res.data]));
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "maintenance_report.csv");
+    document.body.appendChild(link);
+    link.click();
+  };
+
+  useEffect(() => {
+    fetchReports();
+  }, []);
+
+  return (
+    <div className="p-6">
+      <h2 className="text-xl font-bold mb-4">Maintenance Reports</h2>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+        <input
+          type="date"
+          className="border p-2"
+          onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
+        />
+        <input
+          type="date"
+          className="border p-2"
+          onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
+        />
+        <select className="border p-2" onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
+          <option value="">All Statuses</option>
+          <option value="Pending">Pending</option>
+          <option value="In Progress">In Progress</option>
+          <option value="Completed">Completed</option>
+        </select>
+        <button className="bg-blue-600 text-white px-4 py-2" onClick={downloadCSV}>Download CSV</button>
+      </div>
+      <table className="min-w-full border text-sm">
+        <thead className="bg-gray-200">
+          <tr>
+            <th className="p-2 border">Title</th>
+            <th className="p-2 border">Status</th>
+            <th className="p-2 border">Created</th>
+            <th className="p-2 border">Resolved</th>
+          </tr>
+        </thead>
+        <tbody>
+          {reports.map((r) => (
+            <tr key={r._id}>
+              <td className="p-2 border">{r.title}</td>
+              <td className="p-2 border">{r.status}</td>
+              <td className="p-2 border">{new Date(r.createdAt).toLocaleDateString()}</td>
+              <td className="p-2 border">{r.resolvedAt ? new Date(r.resolvedAt).toLocaleDateString() : "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+export default ReportsPage;
+```
+
+---
+
+### 📍 Notes:
+
+- **Access control** ensures users can only export **their own data**.
+- Report supports:
+  - **Filtering by date/status/category**
+  - **Downloading CSV**
+- Optional future upgrade: **PDF export** via Puppeteer or html-pdf.
+
+---
+
+Would you like me to proceed to **🔔 Chunk 10: Notifications & Reminders** next?
+Great! Let’s continue with **🔟 Chunk 10: Notifications & Reminders**.
+
+---
+
+## 🔟 Notifications & Reminders
+
+### 📌 Goal:
+Keep users informed with **real-time or periodic notifications** about important updates like new maintenance requests, status changes, or upcoming scheduled tasks.
+
+---
+
+### ✅ Backend Setup
+
+#### 1. **Notification Model**
+
+📁 `models/Notification.js`
+
+```js
+const mongoose = require("mongoose");
+
+const notificationSchema = new mongoose.Schema({
+  recipient: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  message: { type: String, required: true },
+  link: { type: String },
+  isRead: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now },
+});
+
+module.exports = mongoose.model("Notification", notificationSchema);
+```
+
+---
+
+#### 2. **Notification Utilities**
+
+📁 `utils/sendNotification.js`
+
+```js
+const Notification = require("../models/Notification");
+
+const sendNotification = async (recipientId, message, link = "") => {
+  try {
+    await Notification.create({
+      recipient: recipientId,
+      message,
+      link,
+    });
+  } catch (error) {
+    console.error("Notification Error:", error.message);
+  }
+};
+
+module.exports = sendNotification;
+```
+
+You can now call `sendNotification(userId, message, link)` in relevant places:
+- After creating a new request.
+- When a vendor is assigned.
+- When status changes, etc.
+
+---
+
+#### 3. **Notification Routes**
+
+📁 `routes/notification.js`
+
+```js
+const express = require("express");
+const router = express.Router();
+const auth = require("../middleware/auth");
+const Notification = require("../models/Notification");
+
+// Get all notifications for user
+router.get("/", auth, async (req, res) => {
+  const notifications = await Notification.find({ recipient: req.user._id }).sort({ createdAt: -1 });
+  res.json(notifications);
+});
+
+// Mark as read
+router.patch("/:id/read", auth, async (req, res) => {
+  await Notification.findByIdAndUpdate(req.params.id, { isRead: true });
+  res.sendStatus(204);
+});
+
+module.exports = router;
+```
+
+---
+
+### ✅ Frontend Setup
+
+#### 📁 `components/NotificationBell.jsx`
+
+```jsx
+import React, { useEffect, useState } from "react";
+import axios from "../utils/axiosInstance";
+import { Bell } from "lucide-react";
+
+const NotificationBell = () => {
+  const [notifications, setNotifications] = useState([]);
+  const [open, setOpen] = useState(false);
+
+  const fetchNotifications = async () => {
+    const res = await axios.get("/notification");
+    setNotifications(res.data);
+  };
+
+  const markAsRead = async (id) => {
+    await axios.patch(`/notification/${id}/read`);
+    fetchNotifications();
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+  }, []);
+
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
+
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(!open)} className="relative">
+        <Bell />
+        {unreadCount > 0 && (
+          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs px-1 rounded-full">
+            {unreadCount}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-2 w-64 bg-white shadow-lg border rounded p-2 z-50">
+          <h4 className="font-bold mb-2">Notifications</h4>
+          {notifications.length === 0 ? (
+            <p className="text-sm text-gray-500">No notifications.</p>
+          ) : (
+            notifications.map((n) => (
+              <div
+                key={n._id}
+                onClick={() => markAsRead(n._id)}
+                className={`p-2 rounded cursor-pointer ${n.isRead ? "bg-gray-100" : "bg-blue-100"}`}
+              >
+                <p className="text-sm">{n.message}</p>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default NotificationBell;
+```
+
+---
+
+### ✅ Usage Example:
+
+- In your layout (e.g., `DashboardLayout.jsx`), you can import and place `<NotificationBell />` in the header/nav bar.
+- Add `sendNotification()` in backend controllers for requests, assignments, schedule reminders, etc.
+
+---
+
+✅ **Next (optional future upgrade)**:
+- WebSocket support for **real-time notifications** via `socket.io`.
+- Email or SMS reminders using tools like **Nodemailer** or **Twilio**.
+
+---
+
+Ready to move on to **Chunk 11: Tenant Feedback & Ratings**?
+
+
+
+
+
+????????
+
+Excellent — let’s continue with **Chunk 11: Tenant Feedback & Ratings**.
+
+---
+
+## 🔟➕ Chunk 11: Tenant Feedback & Ratings
+
+### 🎯 Goal:  
+Allow tenants to provide feedback and rate the maintenance service after a request is marked as **Completed**. This helps PMs and Landlords track vendor/technician performance and tenant satisfaction.
+
+---
+
+### ✅ Backend Setup
+
+#### 1. **Extend Request Model**
+
+📁 `models/Request.js` → Add this to the schema:
+
+```js
+feedback: {
+  rating: { type: Number, min: 1, max: 5 },
+  comment: { type: String },
+  submittedAt: { type: Date },
+},
+```
+
+---
+
+#### 2. **Feedback Controller**
+
+📁 `controllers/requestController.js` → Add this function:
+
+```js
+exports.submitFeedback = async (req, res) => {
+  const { id } = req.params;
+  const { rating, comment } = req.body;
+
+  const request = await Request.findById(id);
+
+  if (!request) return res.status(404).json({ message: "Request not found" });
+  if (request.createdBy.toString() !== req.user._id.toString()) {
+    return res.status(403).json({ message: "You can only submit feedback for your own request." });
+  }
+
+  if (request.status !== "Completed") {
+    return res.status(400).json({ message: "Feedback can only be submitted after completion." });
+  }
+
+  request.feedback = {
+    rating,
+    comment,
+    submittedAt: new Date(),
+  };
+
+  await request.save();
+  res.json({ message: "Feedback submitted successfully." });
+};
+```
+
+---
+
+#### 3. **Feedback Route**
+
+📁 `routes/request.js` → Add route:
+
+```js
+router.post("/:id/feedback", auth, requestController.submitFeedback);
+```
+
+---
+
+### ✅ Frontend Setup
+
+#### 📁 `components/FeedbackForm.jsx`
+
+```jsx
+import React, { useState } from "react";
+import axios from "../utils/axiosInstance";
+
+const FeedbackForm = ({ requestId, onSuccess }) => {
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState("");
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await axios.post(`/request/${requestId}/feedback`, { rating, comment });
+      onSuccess(); // notify parent
+    } catch (err) {
+      alert("Feedback submission failed.");
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="bg-white p-4 rounded shadow">
+      <label className="block mb-2 font-semibold">Rate the Service</label>
+      <div className="flex space-x-1 mb-4">
+        {[1, 2, 3, 4, 5].map((num) => (
+          <button
+            key={num}
+            type="button"
+            onClick={() => setRating(num)}
+            className={`p-1 ${rating >= num ? "text-yellow-500" : "text-gray-300"}`}
+          >
+            ★
+          </button>
+        ))}
+      </div>
+
+      <textarea
+        className="w-full p-2 border rounded mb-3"
+        placeholder="Leave a comment (optional)..."
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+      ></textarea>
+
+      <button className="bg-blue-500 text-white px-4 py-2 rounded" type="submit">
+        Submit Feedback
+      </button>
+    </form>
+  );
+};
+
+export default FeedbackForm;
+```
+
+---
+
+### ✅ Where to Use It
+
+Inside the **RequestDetailPage**, after confirming the request status is `Completed` and the user is the tenant who created it:
+
+```jsx
+{request.status === "Completed" && request.createdBy === currentUser._id && !request.feedback && (
+  <FeedbackForm requestId={request._id} onSuccess={fetchRequest} />
+)}
+```
+
+---
+
+✅ **Future Upgrade Ideas**:
+- Visualize vendor/service ratings in the reports dashboard.
+- Add filter by rating to requests.
+- Auto-flag low-rated requests for review.
+
+---
+
+Ready to move on to **Chunk 12: Reports & CSV Export**?
+
+
+///////
+
+
+
+Perfect timing — here's a full **review of what we’ve built so far** for the **Fixit by Threalty** Maintenance Tracking App and what’s coming up next. This serves as both a recap and a checklist to track your progress.
+
+---
+
+## ✅ **PHASE 1: BACKEND (Node.js + Express + MongoDB)**
+
+### 🔧 1. App Setup
+- `express`, `mongoose`, `cors`, `dotenv`, `jsonwebtoken` set up.
+- Environment variables for database and JWT.
+
+### 🔐 2. Auth System
+- User roles: Tenant, Landlord, Property Manager.
+- Signup & login routes.
+- JWT-based auth middleware.
+- Role-based access control middleware.
+
+### 🏘️ 3. Property & User Flow
+- Tenants join existing properties (request & approval system).
+- Landlords/PMs create properties.
+- Users are linked to properties after approval.
+
+### 🧾 4. Maintenance Requests CRUD
+- Create, Read (all & by ID), Update status, Archive.
+- States: `Pending`, `In Progress`, `Completed`, `Archived`.
+- File/image upload with `multer`.
+- Schema includes assigned vendor, tenantRef, priority, etc.
+
+### 🧑‍🔧 5. Vendor Management
+- Add/view vendors linked to a user/property.
+- Used during assignment of maintenance requests.
+
+### 📆 6. Scheduled Maintenance
+- One-time & recurring scheduled tasks.
+- Viewable on dashboard and as part of request tracking.
+
+### 💬 7. Messaging System
+- Comment/chat-style messaging per request.
+- Sender info + timestamps.
+- Stakeholders only (tenant + landlord/PM).
+
+### 🔔 8. Notification System (basic structure)
+- In-app placeholder logic.
+- Future-ready for email or push integration.
+
+### 📩 9. Maintenance Feedback
+- Tenants submit 1–5 star ratings and comments on completed tasks.
+- Stored in request schema, linked to reports and analytics.
+
+---
+
+## ✅ **PHASE 2: FRONTEND (React + TailwindCSS)**
+
+### ⚙️ 1. App Scaffolding
+- Vite + TailwindCSS setup.
+- Folder structure organized: `pages`, `components`, `layouts`, `api`, `routes`.
+
+### 🔐 2. Auth Pages
+- Login and Signup pages by role.
+- Auth context provider.
+- PrivateRoute wrappers for route protection.
+
+### 🏠 3. Dashboard UI
+- Dynamic based on user role.
+- Tabs: `All Requests`, `Pending`, `In Progress`, `Completed`, `Archived`.
+- Filtering and searching.
+
+### 🔎 4. Request Detail Page
+- Detailed view of request.
+- Conditional actions based on role:
+  - Tenants: comment, mark complete, give feedback.
+  - PMs/Landlords: assign, reassign, update status, add cost/vendor.
+
+### 🧑‍🔧 5. Vendor Management Page
+- View, add, and select vendors from a dedicated page.
+
+### 📆 6. Maintenance Scheduler Page
+- Manage scheduled and recurring tasks.
+- View upcoming/overdue schedules.
+
+### ⭐ 7. Feedback Form Component
+- Renders in request detail when a tenant can rate a completed job.
+- Sends rating + optional comment to backend.
+
+---
+
+## ⏭️ **NEXT PHASE: REMAINING CHUNKS**
+
+Here’s what we’re going to implement next:
+
+### 🔢 **Chunk 12: Reports & CSV Export**
+- Filter by date, property, request type, status.
+- Export to PDF and CSV.
+- Role-based views: PMs & landlords only.
+
+### 🛡️ **Chunk 13: Security & Audit Trail**
+- Add audit logs for all updates (status, comments, assignments).
+- Store timestamps and actor info.
+- Optional 2FA config.
+
+### 🧪 **Chunk 14: Final Testing & Cleanup**
+- Comprehensive testing checklist.
+- UX polish.
+- Mobile responsiveness check.
+- Mock data scripts or seeders.
+
+### 🚀 **Chunk 15: Deployment**
+- Frontend → Vercel
+- Backend → Render or Railway
+- MongoDB → MongoDB Atlas
+- .env & secrets setup
+
+---
+
+Would you like to continue with **Chunk 12: Reports & CSV Export** now?
+
+Great! Let’s proceed with **Chunk 12: Reports & CSV Export** for the **Fixit by Threalty** Maintenance App.
+
+---
+
+## 🧾 CHUNK 12: REPORTING & CSV EXPORT MODULE
+
+This module enables **Property Managers** and **Landlords** to:
+- View request stats filtered by date, property, status, etc.
+- Export data to **CSV** or **PDF** for offline reporting.
+
+---
+
+### 🧠 BACKEND SETUP
+
+#### ✅ 1. **Route: `GET /api/reports`**
+**Access:** Landlord, PM only  
+**Query params:**
+- `propertyId`
+- `status`
+- `startDate` & `endDate`
+
+**Controller (controllers/reportController.js):**
+```js
+const Request = require("../models/Request");
+
+exports.getReportData = async (req, res) => {
+  try {
+    const { propertyId, status, startDate, endDate } = req.query;
+    const filter = {};
+
+    if (propertyId) filter.property = propertyId;
+    if (status) filter.status = status;
+    if (startDate && endDate) {
+      filter.createdAt = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      };
+    }
+
+    const data = await Request.find(filter)
+      .populate("createdBy", "name email")
+      .populate("assignedTo", "name")
+      .populate("vendor", "name contact");
+
+    res.json(data);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Report generation failed." });
+  }
+};
+```
+
+#### ✅ 2. **Route Registration (routes/reportRoutes.js):**
+```js
+const express = require("express");
+const router = express.Router();
+const { getReportData } = require("../controllers/reportController");
+const { protect, authorizeRoles } = require("../middleware/authMiddleware");
+
+router.get("/", protect, authorizeRoles("landlord", "manager"), getReportData);
+
+module.exports = router;
+```
+
+#### ✅ 3. **Mount Route (server.js):**
+```js
+app.use("/api/reports", require("./routes/reportRoutes"));
+```
+
+---
+
+### 🧩 FRONTEND SETUP
+
+#### ✅ 1. **Page: `pages/ReportsPage.jsx`**
+
+```jsx
+import { useState, useEffect } from "react";
+import axios from "../api/axios";
+import { saveAs } from "file-saver";
+import { CSVLink } from "react-csv";
+
+const ReportsPage = () => {
+  const [requests, setRequests] = useState([]);
+  const [filters, setFilters] = useState({ startDate: "", endDate: "", status: "" });
+
+  const fetchData = async () => {
+    const query = new URLSearchParams(filters).toString();
+    const res = await axios.get(`/reports?${query}`);
+    setRequests(res.data);
+  };
+
+  const downloadCSV = () => {
+    const csvData = requests.map(req => ({
+      Title: req.title,
+      Status: req.status,
+      Created: new Date(req.createdAt).toLocaleDateString(),
+      Vendor: req.vendor?.name || "Unassigned",
+      AssignedTo: req.assignedTo?.name || "N/A",
+    }));
+    return csvData;
+  };
+
+  useEffect(() => { fetchData(); }, []);
+
+  return (
+    <div className="p-6">
+      <h1 className="text-xl font-bold mb-4">Maintenance Reports</h1>
+
+      <div className="flex gap-4 mb-4">
+        <input type="date" onChange={e => setFilters(f => ({ ...f, startDate: e.target.value }))} />
+        <input type="date" onChange={e => setFilters(f => ({ ...f, endDate: e.target.value }))} />
+        <select onChange={e => setFilters(f => ({ ...f, status: e.target.value }))}>
+          <option value="">All</option>
+          <option value="pending">Pending</option>
+          <option value="in progress">In Progress</option>
+          <option value="completed">Completed</option>
+        </select>
+        <button onClick={fetchData} className="bg-blue-500 text-white px-4 rounded">Filter</button>
+      </div>
+
+      <div className="mb-4">
+        <CSVLink data={downloadCSV()} filename="maintenance_report.csv" className="bg-green-500 text-white px-4 py-1 rounded">
+          Download CSV
+        </CSVLink>
+      </div>
+
+      <table className="w-full border">
+        <thead>
+          <tr className="bg-gray-100">
+            <th>Title</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Assigned To</th>
+            <th>Vendor</th>
+          </tr>
+        </thead>
+        <tbody>
+          {requests.map(req => (
+            <tr key={req._id} className="border-t">
+              <td>{req.title}</td>
+              <td>{req.status}</td>
+              <td>{new Date(req.createdAt).toLocaleDateString()}</td>
+              <td>{req.assignedTo?.name || "N/A"}</td>
+              <td>{req.vendor?.name || "N/A"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+export default ReportsPage;
+```
+
+> 📦 Required Dependencies:
+```bash
+npm install react-csv file-saver
+```
+
+---
+
+### 🔐 Permissions Reminder
+Only **PMs and Landlords** can access `/reports`. Protected via:
+- `authMiddleware.protect`
+- `authorizeRoles("landlord", "manager")`
+
+---
+
+Would you like to proceed to **Chunk 13: Security & Audit Trail** now, or review/test this part first?
+
+

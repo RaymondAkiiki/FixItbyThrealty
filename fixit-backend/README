@@ -1,0 +1,10 @@
+//test of server API
+{
+    "_id": "68125223fb59c547ea1b1642",
+    "name": "John Doe",
+    "email": "test@example.com",
+    "role": "tenant",
+    "approved": false,
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4MTI1MjIzZmI1OWM1NDdlYTFiMTY0MiIsImlhdCI6MTc0NjAzMTYwNCwiZXhwIjoxNzQ4NjIzNjA0fQ.3sEP3eG6wywACdjN9yvELU_8AHzKCCULu2wx1tLFPYs"
+}
+
