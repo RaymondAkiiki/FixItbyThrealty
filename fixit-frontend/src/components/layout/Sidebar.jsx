@@ -1,7 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 
-const Sidebar = () => {
+const Sidebar = ({ isSidebarOpen }) => {
   const { user } = useAuth();
   const { pathname } = useLocation();
 
@@ -16,7 +16,11 @@ const Sidebar = () => {
   ];
 
   return (
-    <aside className="w-64 bg-white border-r min-h-screen p-4 shadow-sm">
+    <aside
+      className={`w-64 bg-white border-r min-h-screen p-4 shadow-sm transition-transform transform ${
+        isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+      }`}
+    >
       <h2 className="text-xl font-bold mb-6 text-blue-600">Fixit Dashboard</h2>
       <ul className="space-y-3">
         {navItems.map((item) => (

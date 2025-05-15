@@ -10,6 +10,7 @@ const requestSchema = new mongoose.Schema({
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', default: null },
   assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  property: { type: mongoose.Schema.Types.ObjectId, ref: 'Property' }, // Added property reference
   createdAt: { type: Date, default: Date.now },
   resolvedAt: { type: Date, default: null },
   comments: [

@@ -1,4 +1,5 @@
 // /src/services/requestService.js
+import api from "./api";
 import axios from "axios";
 
 const API_URL = `${import.meta.env.VITE_API_URL}/api/requests`;

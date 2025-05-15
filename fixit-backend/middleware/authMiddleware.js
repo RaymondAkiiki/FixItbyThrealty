@@ -1,6 +1,19 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const AuditLog = require("../models/AuditLog");
 
+const logAction = async (action, userId, targetModel, targetId) => {
+  try {
+    await AuditLog.create({
+      action,
+      user: userId,
+      targetModel,
+      targetId,
+    });
+  } catch (error) {
+    console.error("Failed to log action:", error.message);
+  }
+};
 // Middleware to protect routes
 exports.protect = async (req, res, next) => {
   let token = req.headers.authorization?.startsWith("Bearer")

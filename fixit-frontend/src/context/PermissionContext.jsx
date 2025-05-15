@@ -1,6 +1,5 @@
-// /src/context/PermissionContext.js
-import React, { createContext, useContext, useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { createContext, useContext } from "react";
+import { useAuth } from "./AuthContext";
 
 const PermissionContext = createContext();
 
@@ -9,17 +8,13 @@ export const usePermission = () => {
 };
 
 export const PermissionProvider = ({ children }) => {
-  const [userRole, setUserRole] = useState(null);
-  const navigate = useNavigate();
+  const { user } = useAuth();
 
-  useEffect(() => {
-    // Fetch user role from backend or localStorage
-    const role = localStorage.getItem("userRole"); // Assume this is stored after login
-    setUserRole(role);
-  }, []);
-
-  const hasPermission = (roleRequired) => {
-    return userRole === roleRequired;
+  const hasPermission = (rolesRequired) => {
+    if (!Array.isArray(rolesRequired)) {
+      rolesRequired = [rolesRequired]; // Convert single role to array
+    }
+    return rolesRequired.includes(user?.role); // Check if user role matches
   };
 
   return (

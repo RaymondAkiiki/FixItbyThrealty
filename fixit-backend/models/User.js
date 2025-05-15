@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const crypto = require("crypto");
 
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -10,6 +11,8 @@ const userSchema = new mongoose.Schema({
     enum: ['tenant', 'landlord', 'property_manager'],
     default: 'tenant'
   },
+  resetPasswordToken: { type: String }, // Token for password reset
+  resetPasswordExpires: { type: Date }, // Token expiration time
   approved: { type: Boolean, default: false },
   property: { type: mongoose.Schema.Types.ObjectId, ref: 'Property' },
 }, { timestamps: true });
@@ -24,6 +27,14 @@ userSchema.pre('save', async function(next) {
 // Compare password
 userSchema.methods.matchPassword = async function(enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
+};
+
+// Generate a reset token for forgot password
+userSchema.methods.generateResetToken = function () {
+  const resetToken = crypto.randomBytes(32).toString("hex");
+  this.resetPasswordToken = crypto.createHash("sha256").update(resetToken).digest("hex");
+  this.resetPasswordExpires = Date.now() + 10 * 60 * 1000; // Token valid for 10 minutes
+  return resetToken; // Return the plain token to send via email
 };
 
 module.exports = mongoose.model('User', userSchema);

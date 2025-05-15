@@ -1,6 +1,11 @@
-// /src/pages/dashboard/Vendors.jsx
+// src/pages/dashboard/Vendors.jsx
 import React, { useState, useEffect } from "react";
-import VendorService from "../../services/VendorService";
+import {
+  getAllVendors,
+  addVendor,
+  updateVendor,
+  deleteVendor
+} from "../../services/vendorService"; // ✅ Correct path & case-sensitive
 
 const Vendors = () => {
   const [vendors, setVendors] = useState([]);
@@ -9,7 +14,7 @@ const Vendors = () => {
   useEffect(() => {
     const fetchVendors = async () => {
       try {
-        const vendorList = await VendorService.getVendors();
+        const vendorList = await getAllVendors(); // ✅ Correct call
         setVendors(vendorList);
       } catch (error) {
         console.error("Error fetching vendors:", error);
@@ -21,8 +26,8 @@ const Vendors = () => {
 
   const handleAddVendor = async () => {
     try {
-      await VendorService.addVendor(newVendor);
-      setVendors([...vendors, newVendor]);
+      const added = await addVendor(newVendor); // ✅ Correct call
+      setVendors([...vendors, added]);
       setNewVendor({ name: "", type: "", contact: "" });
     } catch (error) {
       console.error("Error adding vendor:", error);
@@ -32,6 +37,7 @@ const Vendors = () => {
   return (
     <div className="p-4">
       <h1 className="text-2xl font-bold mb-4">Manage Vendors</h1>
+
       <div className="mb-4">
         <h3 className="text-xl">Add New Vendor</h3>
         <input
@@ -74,7 +80,4 @@ const Vendors = () => {
   );
 };
 
-// VendorsPage.jsx
-export default function VendorsPage() {
-  return <div>Vendors Page</div>;
-}
+export default Vendors;

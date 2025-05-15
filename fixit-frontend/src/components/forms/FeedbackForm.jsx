@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import axios from "../utils/axiosInstance";
+import axios from "../src/api/axios";
 
 const FeedbackForm = ({ requestId, onSuccess }) => {
   const [rating, setRating] = useState(0);

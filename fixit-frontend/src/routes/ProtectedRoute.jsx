@@ -1,12 +1,23 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { usePermission } from "../context/PermissionContext";
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, loading } = useAuth();
+  const { hasPermission } = usePermission();
 
-  if (!isAuthenticated) return <Navigate to="/login" />;
+  // Show loading indicator while authentication state is being determined
+  if (loading) {
+    return <div>Loading...</div>;
+  }
 
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
+  // Redirect unauthenticated users to login
+  if (!isAuthenticated) {
+    return <Navigate to="/login" />;
+  }
+
+  // Check role-based access
+  if (allowedRoles && !hasPermission(allowedRoles)) {
     return <div className="p-6 text-red-600">Access Denied</div>;
   }
 
